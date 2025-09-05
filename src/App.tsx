@@ -3,6 +3,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { FaStethoscope } from 'react-icons/fa';
 import { AuthProvider } from "./contexts/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 
@@ -65,6 +66,9 @@ const App = () => (
           </Routes>
         </AuthProvider>
       </BrowserRouter>
+  {/* Medical Icon Example */}
+  <h1>MedicalBot</h1>
+  <FaStethoscope size={48} color="#2c3e50" style={{ margin: '16px' }} />
     </TooltipProvider>
   </QueryClientProvider>
 );
