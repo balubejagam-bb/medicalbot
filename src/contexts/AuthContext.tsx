@@ -45,46 +45,79 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let isMounted = true;
+    
     // Safety net: ensure loading doesn't hang forever (e.g., network hiccups)
     const safetyTimeout = setTimeout(() => {
-      setLoading(false);
+      if (isMounted) {
+        console.log('AuthContext: Safety timeout reached, clearing loading');
+        setLoading(false);
+      }
     }, 4000);
 
     // Get initial session
-    supabase.auth.getSession()
-      .then(({ data: { session } }) => {
-        setSession(session);
-        if (session?.user) {
-          fetchUserProfile(session.user);
-        } else {
+    const getInitialSession = async () => {
+      try {
+        console.log('AuthContext: Getting initial session...');
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        if (error) {
+          console.error('Error getting initial session:', error);
+          if (isMounted) {
+            setLoading(false);
+          }
+          return;
+        }
+
+        console.log('AuthContext: Initial session:', session ? 'Found' : 'None');
+        
+        if (isMounted) {
+          setSession(session);
+          if (session?.user) {
+            await fetchUserProfile(session.user);
+          } else {
+            setUser(null);
+            setLoading(false);
+          }
+        }
+      } catch (error) {
+        console.error('Error in getInitialSession:', error);
+        if (isMounted) {
           setLoading(false);
         }
-      })
-      .catch((error) => {
-        console.error('Error getting session:', error);
-        setLoading(false);
-      });
+      }
+    };
+
+    getInitialSession();
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
+      async (event, session) => {
+        console.log('AuthContext: Auth state changed:', event, session ? 'Session exists' : 'No session');
+        
+        if (!isMounted) {
+          return;
+        }
+        
         try {
           setSession(session);
           if (session?.user) {
             await fetchUserProfile(session.user);
           } else {
             setUser(null);
+            setLoading(false);
           }
         } catch (error) {
           console.error('Error in auth state change:', error);
-        } finally {
-          // Always ensure loading is cleared after handling the auth event
-          setLoading(false);
+          if (isMounted) {
+            setLoading(false);
+          }
         }
       }
     );
 
     return () => {
+      isMounted = false;
       clearTimeout(safetyTimeout);
       subscription.unsubscribe();
     };
@@ -92,6 +125,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 
   const fetchUserProfile = async (authUser: User) => {
     try {
+      console.log('AuthContext: Fetching user profile for:', authUser.id);
       const { data, error } = await supabase
         .from('users')
         .select('*')
@@ -102,24 +136,30 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         console.error('Error fetching user profile:', error);
       }
 
-      setUser({
+      const userProfile = {
         id: authUser.id,
         email: authUser.email || '',
         first_name: data?.first_name || authUser.user_metadata?.first_name,
         last_name: data?.last_name || authUser.user_metadata?.last_name,
         role: data?.role || authUser.user_metadata?.role,
-      });
+      };
+
+      console.log('AuthContext: User profile set:', userProfile);
+      setUser(userProfile);
     } catch (error) {
       console.error('Error in fetchUserProfile:', error);
       // Set user even if profile fetch fails, using auth metadata
-      setUser({
+      const fallbackUser = {
         id: authUser.id,
         email: authUser.email || '',
         first_name: authUser.user_metadata?.first_name,
         last_name: authUser.user_metadata?.last_name,
         role: authUser.user_metadata?.role,
-      });
+      };
+      console.log('AuthContext: Setting fallback user:', fallbackUser);
+      setUser(fallbackUser);
     } finally {
+      console.log('AuthContext: Clearing loading state');
       setLoading(false);
     }
   };

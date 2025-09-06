@@ -14,7 +14,10 @@ const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
   useEffect(() => {
     console.log('ProtectedRoute - User:', user, 'Loading:', loading);
   }, [user, loading]);
+
+  // Show loading spinner while authentication is being determined
   if (loading) {
+    console.log('ProtectedRoute - Still loading, showing spinner');
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center space-y-4">
@@ -25,11 +28,13 @@ const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
     );
   }
 
+  // If not loading and no user, redirect to login
   if (!user) {
-    console.log('ProtectedRoute - No user, redirecting to login');
+    console.log('ProtectedRoute - No user found, redirecting to login');
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
+  // User is authenticated, render the protected content
   console.log('ProtectedRoute - User authenticated, rendering children');
   return <>{children}</>;
 };
