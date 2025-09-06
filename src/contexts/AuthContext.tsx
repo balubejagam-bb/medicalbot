@@ -170,14 +170,20 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   const signIn = async (email: string, password: string) => {
     // Start loading and perform sign-in
     setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
       setLoading(false);
       throw error;
     }
 
-    // Wait until session is available to avoid race conditions
-    await waitForSession(3000);
+    // If we got the session/user immediately, set them to avoid UI race conditions
+    if (data?.user) {
+      setSession(data.session);
+      await fetchUserProfile(data.user);
+    } else {
+      // Fallback: Wait until session is available
+      await waitForSession(3000);
+    }
   };
 
   // Helper: wait for a Supabase session or timeout

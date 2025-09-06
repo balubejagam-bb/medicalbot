@@ -65,10 +65,7 @@ const App = () => (
             <Route path="*" element={<NotFound />} />
           </Routes>
         </AuthProvider>
-      </BrowserRouter>
-  {/* Medical Icon Example */}
-  <h1>MedicalBot</h1>
-  {/* ...existing code... */}
+  </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
 );
