@@ -47,50 +47,51 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   useEffect(() => {
     let isMounted = true;
     
-    // Safety net: ensure loading doesn't hang forever (e.g., network hiccups)
-    const safetyTimeout = setTimeout(() => {
-      if (isMounted) {
-        console.log('AuthContext: Safety timeout reached, clearing loading');
-        setLoading(false);
-      }
-    }, 4000);
-
-    // Get initial session
-    const getInitialSession = async () => {
+    // Initialize session check
+    const initializeAuth = async () => {
       try {
-        console.log('AuthContext: Getting initial session...');
+        console.log('AuthContext: Initializing authentication...');
+        
+        // Get current session
         const { data: { session }, error } = await supabase.auth.getSession();
         
         if (error) {
-          console.error('Error getting initial session:', error);
+          console.error('Error getting session:', error);
           if (isMounted) {
+            setSession(null);
+            setUser(null);
             setLoading(false);
           }
           return;
         }
 
-        console.log('AuthContext: Initial session:', session ? 'Found' : 'None');
+        console.log('AuthContext: Session check complete:', session ? 'Session found' : 'No session');
         
         if (isMounted) {
           setSession(session);
           if (session?.user) {
+            // User is logged in, fetch profile
             await fetchUserProfile(session.user);
           } else {
+            // No session, user is not logged in
             setUser(null);
             setLoading(false);
           }
         }
       } catch (error) {
-        console.error('Error in getInitialSession:', error);
+        console.error('Error initializing auth:', error);
         if (isMounted) {
+          setSession(null);
+          setUser(null);
           setLoading(false);
         }
       }
     };
 
-    getInitialSession();
+    // Start initialization
+    initializeAuth();
 
-    // Listen for auth changes
+    // Listen for auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         console.log('AuthContext: Auth state changed:', event, session ? 'Session exists' : 'No session');
@@ -110,17 +111,27 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         } catch (error) {
           console.error('Error in auth state change:', error);
           if (isMounted) {
+            setUser(null);
             setLoading(false);
           }
         }
       }
     );
 
+    // Safety timeout to prevent indefinite loading
+    const safetyTimeout = setTimeout(() => {
+      if (isMounted && loading) {
+        console.warn('AuthContext: Safety timeout reached, clearing loading');
+        setLoading(false);
+      }
+    }, 5000);
+
     return () => {
       isMounted = false;
       clearTimeout(safetyTimeout);
       subscription.unsubscribe();
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchUserProfile = async (authUser: User) => {

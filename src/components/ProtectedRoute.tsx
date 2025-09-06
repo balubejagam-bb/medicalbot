@@ -8,21 +8,29 @@ interface ProtectedRouteProps {
 }
 
 const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
-  const { user, loading } = useAuth();
+  const { user, loading, session } = useAuth();
   const location = useLocation();
 
   useEffect(() => {
-    console.log('ProtectedRoute - User:', user, 'Loading:', loading);
-  }, [user, loading]);
+    console.log('ProtectedRoute - Current state:', {
+      user: user ? `${user.email} (${user.id})` : 'null',
+      loading,
+      session: session ? 'exists' : 'null',
+      pathname: location.pathname
+    });
+  }, [user, loading, session, location.pathname]);
 
   // Show loading spinner while authentication is being determined
   if (loading) {
-    console.log('ProtectedRoute - Still loading, showing spinner');
+    console.log('ProtectedRoute - Still loading authentication, showing spinner');
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center space-y-4">
           <Loader2 className="w-8 h-8 animate-spin text-primary mx-auto" />
           <p className="text-muted-foreground">Loading your account...</p>
+          <p className="text-xs text-muted-foreground">
+            Checking authentication status...
+          </p>
         </div>
       </div>
     );
@@ -30,12 +38,12 @@ const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
 
   // If not loading and no user, redirect to login
   if (!user) {
-    console.log('ProtectedRoute - No user found, redirecting to login');
+    console.log('ProtectedRoute - Authentication check complete: No user found, redirecting to login');
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
   // User is authenticated, render the protected content
-  console.log('ProtectedRoute - User authenticated, rendering children');
+  console.log('ProtectedRoute - User authenticated successfully, rendering protected content');
   return <>{children}</>;
 };
 
