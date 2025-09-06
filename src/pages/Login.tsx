@@ -34,7 +34,10 @@ const Login = () => {
         title: 'Welcome back!',
         description: 'Successfully signed in to MediCare-ICU Assistant.',
       });
-      navigate('/dashboard');
+      // Wait a moment for auth state to update, then navigate
+      setTimeout(() => {
+        navigate('/dashboard');
+      }, 100);
     } catch (error: any) {
       setError(error.message || 'Failed to sign in');
       toast({

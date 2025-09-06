@@ -111,6 +111,14 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       });
     } catch (error) {
       console.error('Error in fetchUserProfile:', error);
+      // Set user even if profile fetch fails, using auth metadata
+      setUser({
+        id: authUser.id,
+        email: authUser.email || '',
+        first_name: authUser.user_metadata?.first_name,
+        last_name: authUser.user_metadata?.last_name,
+        role: authUser.user_metadata?.role,
+      });
     } finally {
       setLoading(false);
     }
