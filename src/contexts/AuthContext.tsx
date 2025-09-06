@@ -168,14 +168,36 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   };
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-
+    // Start loading and perform sign-in
+    setLoading(true);
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
+      setLoading(false);
       throw error;
     }
+
+    // Wait until session is available to avoid race conditions
+    await waitForSession(3000);
+  };
+
+  // Helper: wait for a Supabase session or timeout
+  const waitForSession = async (timeoutMs = 3000): Promise<void> => {
+    const start = Date.now();
+    return new Promise((resolve) => {
+      const check = async () => {
+        const { data } = await supabase.auth.getSession();
+        if (data.session?.user) {
+          resolve(undefined);
+          return;
+        }
+        if (Date.now() - start > timeoutMs) {
+          resolve(undefined);
+          return;
+        }
+        setTimeout(check, 100);
+      };
+      check();
+    });
   };
 
   const signOut = async () => {
