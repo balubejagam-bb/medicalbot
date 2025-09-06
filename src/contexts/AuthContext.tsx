@@ -96,7 +96,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         .from('users')
         .select('*')
         .eq('id', authUser.id)
-        .single();
+        .maybeSingle();
 
       if (error && error.code !== 'PGRST116') {
         console.error('Error fetching user profile:', error);
