@@ -125,7 +125,9 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       },
     });
 
-    if (error) throw error;
+    if (error) {
+      throw error;
+    }
 
     // Create user profile
     if (data.user) {
@@ -154,17 +156,23 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       password,
     });
 
-    if (error) throw error;
+    if (error) {
+      throw error;
+    }
   };
 
   const signOut = async () => {
     const { error } = await supabase.auth.signOut();
-    if (error) throw error;
+    if (error) {
+      throw error;
+    }
   };
 
   const resetPassword = async (email: string) => {
     const { error } = await supabase.auth.resetPasswordForEmail(email);
-    if (error) throw error;
+    if (error) {
+      throw error;
+    }
   };
 
   const value: AuthContextType = {

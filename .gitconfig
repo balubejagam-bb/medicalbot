@@ -1,0 +1,9 @@
+[user]
+	name = balubejagam-bb
+	email = 22102A030152@mbu.asia
+[core]
+	editor = code --wait
+[merge]
+	tool = vscode
+[diff]
+	tool = vscode
