@@ -45,6 +45,11 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Safety net: ensure loading doesn't hang forever (e.g., network hiccups)
+    const safetyTimeout = setTimeout(() => {
+      setLoading(false);
+    }, 4000);
+
     // Get initial session
     supabase.auth.getSession()
       .then(({ data: { session } }) => {
@@ -62,23 +67,27 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
+      async (_event, session) => {
         try {
           setSession(session);
           if (session?.user) {
             await fetchUserProfile(session.user);
           } else {
             setUser(null);
-            setLoading(false);
           }
         } catch (error) {
           console.error('Error in auth state change:', error);
+        } finally {
+          // Always ensure loading is cleared after handling the auth event
           setLoading(false);
         }
       }
     );
 
-    return () => subscription.unsubscribe();
+    return () => {
+      clearTimeout(safetyTimeout);
+      subscription.unsubscribe();
+    };
   }, []);
 
   const fetchUserProfile = async (authUser: User) => {
