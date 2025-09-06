@@ -57,8 +57,13 @@ const Dashboard = () => {
     try {
       console.log('Dashboard: Fetching stats for user', user?.id);
       
+      // Get the date for 7 days ago for recent activity
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      const recentDateString = sevenDaysAgo.toISOString();
+      
       // Use Promise.allSettled to ensure one failure doesn't block everything
-      const [sessionsResult, chatsResult] = await Promise.allSettled([
+      const [sessionsResult, chatsResult, recentActivityResult] = await Promise.allSettled([
         supabase
           .from('document_sessions')
           .select('id', { count: 'exact' })
@@ -67,11 +72,24 @@ const Dashboard = () => {
           .from('chat_history')
           .select('id', { count: 'exact' })
           .eq('user_id', user?.id),
+        Promise.all([
+          supabase
+            .from('document_sessions')
+            .select('id', { count: 'exact' })
+            .eq('user_id', user?.id)
+            .gte('created_at', recentDateString),
+          supabase
+            .from('chat_history')
+            .select('id', { count: 'exact' })
+            .eq('user_id', user?.id)
+            .gte('created_at', recentDateString)
+        ])
       ]);
       
       // Process results safely
       let sessions = 0;
       let chats = 0;
+      let recentActivity = 0;
       
       if (sessionsResult.status === 'fulfilled') {
         if (sessionsResult.value && typeof sessionsResult.value.count === 'number') {
@@ -88,13 +106,34 @@ const Dashboard = () => {
           chats = chatsResult.value.data.length;
         }
       }
+      
+      // Calculate recent activity (from last 7 days)
+      if (recentActivityResult.status === 'fulfilled') {
+        const [recentSessions, recentChats] = recentActivityResult.value;
+        
+        let recentSessionsCount = 0;
+        if (recentSessions && typeof recentSessions.count === 'number') {
+          recentSessionsCount = recentSessions.count;
+        } else if (recentSessions && recentSessions.data) {
+          recentSessionsCount = recentSessions.data.length;
+        }
+        
+        let recentChatsCount = 0;
+        if (recentChats && typeof recentChats.count === 'number') {
+          recentChatsCount = recentChats.count;
+        } else if (recentChats && recentChats.data) {
+          recentChatsCount = recentChats.data.length;
+        }
+        
+        recentActivity = recentSessionsCount + recentChatsCount;
+      }
 
-      console.log('Dashboard: Stats fetched successfully', { sessions, chats });
+      console.log('Dashboard: Stats fetched successfully', { sessions, chats, recentActivity });
       
       setStats({
         totalSessions: sessions,
         totalChats: chats,
-        recentActivity: Math.floor(Math.random() * 10) + 1, // Mock data for demo
+        recentActivity: recentActivity
       });
     } catch (error) {
       console.error('Error fetching dashboard stats:', error);
