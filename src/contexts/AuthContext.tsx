@@ -105,6 +105,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           if (session?.user) {
             await fetchUserProfile(session.user);
           } else {
+            console.log('AuthContext: No session, clearing user and loading');
             setUser(null);
             setLoading(false);
           }
@@ -114,6 +115,14 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
             setUser(null);
             setLoading(false);
           }
+        }
+        
+        // Additional safety: ensure loading is always cleared after auth state change
+        if (isMounted) {
+          setTimeout(() => {
+            console.log('AuthContext: Safety check - ensuring loading is cleared');
+            setLoading(false);
+          }, 100);
         }
       }
     );
@@ -125,9 +134,9 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   }, []);
 
   const fetchUserProfile = async (authUser: User) => {
+    console.log('AuthContext: Starting fetchUserProfile for:', authUser.id);
+    
     try {
-      console.log('AuthContext: Fetching user profile for:', authUser.id);
-      
       // First, set a basic user object immediately to prevent redirect
       const basicUser = {
         id: authUser.id,
@@ -136,10 +145,14 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         last_name: authUser.user_metadata?.last_name,
         role: authUser.user_metadata?.role,
       };
-      setUser(basicUser);
-      console.log('AuthContext: Basic user set:', basicUser);
       
-      // Then try to fetch additional profile data
+      console.log('AuthContext: Setting basic user and clearing loading...');
+      setUser(basicUser);
+      setLoading(false); // Clear loading immediately after setting user
+      
+      console.log('AuthContext: Basic user set, loading cleared:', basicUser);
+      
+      // Then try to fetch additional profile data in background
       const { data, error } = await supabase
         .from('users')
         .select('*')
@@ -147,22 +160,27 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         .maybeSingle();
 
       if (error && error.code !== 'PGRST116') {
-        console.error('Error fetching user profile:', error);
+        console.error('Error fetching additional profile data:', error);
+        return; // Exit early but user is already set
       }
 
       // Update with profile data if available
-      const fullUserProfile = {
-        id: authUser.id,
-        email: authUser.email || '',
-        first_name: data?.first_name || authUser.user_metadata?.first_name,
-        last_name: data?.last_name || authUser.user_metadata?.last_name,
-        role: data?.role || authUser.user_metadata?.role,
-      };
+      if (data) {
+        const fullUserProfile = {
+          id: authUser.id,
+          email: authUser.email || '',
+          first_name: data.first_name || authUser.user_metadata?.first_name,
+          last_name: data.last_name || authUser.user_metadata?.last_name,
+          role: data.role || authUser.user_metadata?.role,
+        };
 
-      console.log('AuthContext: Full user profile set:', fullUserProfile);
-      setUser(fullUserProfile);
+        console.log('AuthContext: Updating with full profile data:', fullUserProfile);
+        setUser(fullUserProfile);
+      }
+      
     } catch (error) {
       console.error('Error in fetchUserProfile:', error);
+      
       // Still set user even if profile fetch fails
       const fallbackUser = {
         id: authUser.id,
@@ -171,12 +189,13 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         last_name: authUser.user_metadata?.last_name,
         role: authUser.user_metadata?.role,
       };
-      console.log('AuthContext: Setting fallback user:', fallbackUser);
+      
+      console.log('AuthContext: Setting fallback user and clearing loading:', fallbackUser);
       setUser(fallbackUser);
-    } finally {
-      console.log('AuthContext: Clearing loading state');
       setLoading(false);
     }
+    
+    console.log('AuthContext: fetchUserProfile completed');
   };
 
   const signUp = async (
