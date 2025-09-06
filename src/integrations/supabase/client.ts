@@ -2,30 +2,61 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+// Extract and normalize environment variables, supporting both quoted and unquoted values
+const normalizeEnvVar = (value: string | undefined): string | undefined => {
+  if (!value) return undefined;
+  // Remove quotes and trim
+  return value.replace(/^["']|["']$/g, '').trim();
+};
 
-// Debug environment variables
+// Get environment variables with normalization
+const SUPABASE_URL = normalizeEnvVar(import.meta.env.VITE_SUPABASE_URL);
+const SUPABASE_PUBLISHABLE_KEY = normalizeEnvVar(import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY);
+const SUPABASE_PROJECT_ID = normalizeEnvVar(import.meta.env.VITE_SUPABASE_PROJECT_ID);
+
+// If URL is missing but we have project ID, construct the URL
+const effectiveSupabaseUrl = SUPABASE_URL || 
+  (SUPABASE_PROJECT_ID ? `https://${SUPABASE_PROJECT_ID}.supabase.co` : undefined);
+
+// Debug environment variables - this helps identify issues in production
 console.log('Supabase Config:', {
-  url: SUPABASE_URL ? 'Set' : 'Missing',
+  url: effectiveSupabaseUrl ? 'Set' : 'Missing',
   key: SUPABASE_PUBLISHABLE_KEY ? 'Set' : 'Missing',
-  urlValue: SUPABASE_URL, // Temporarily log full URL for debugging
-  mode: import.meta.env.MODE
+  projectId: SUPABASE_PROJECT_ID ? 'Set' : 'Missing',
+  mode: import.meta.env.MODE,
+  // Don't log full values in production for security
+  urlPattern: effectiveSupabaseUrl ? `${effectiveSupabaseUrl.substring(0, 8)}...` : 'None',
 });
 
-if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
-  console.error('Missing Supabase environment variables. Please check your .env file.');
-  console.error('Required variables: VITE_SUPABASE_URL, VITE_SUPABASE_PUBLISHABLE_KEY');
+// Display warning if keys are missing
+if (!effectiveSupabaseUrl || !SUPABASE_PUBLISHABLE_KEY) {
+  console.error('Missing Supabase environment variables. Please check your .env file and Vercel environment settings.');
+  console.error('Required variables: VITE_SUPABASE_URL or VITE_SUPABASE_PROJECT_ID, and VITE_SUPABASE_PUBLISHABLE_KEY');
 }
 
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
 
-export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
-  auth: {
-    storage: typeof window !== 'undefined' ? window.localStorage : undefined,
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: true,
+// Create the Supabase client with robust options
+export const supabase = createClient<Database>(
+  effectiveSupabaseUrl || '', // Fallback to empty string to prevent null errors
+  SUPABASE_PUBLISHABLE_KEY || '', // Fallback to empty string to prevent null errors
+  {
+    auth: {
+      storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+    },
+    global: {
+      // Add higher network timeouts for better reliability on slow connections
+      fetch: (url, options) => {
+        return fetch(url, { 
+          ...options,
+          // Increase timeout for better reliability
+          signal: options?.signal || AbortSignal.timeout(30000) // 30-second timeout
+        });
+      }
+    }
   }
-});
+);

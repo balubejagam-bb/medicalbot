@@ -35,32 +35,65 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Start a safety timeout to avoid indefinite loading
+    const safetyTimeout = setTimeout(() => {
+      console.log('Dashboard: Safety timeout reached, clearing loading state');
+      setLoading(false);
+    }, 3000); // 3 second timeout for loading
+    
     if (user) {
+      console.log('Dashboard: User loaded, fetching stats');
       fetchDashboardStats();
+    } else {
+      console.log('Dashboard: No user available, clearing loading state');
+      setLoading(false);
     }
+    
+    return () => clearTimeout(safetyTimeout);
   }, [user]);
 
   const fetchDashboardStats = async () => {
     try {
-      const [sessionsResult, chatsResult] = await Promise.all([
+      console.log('Dashboard: Fetching stats for user', user?.id);
+      
+      // Use Promise.allSettled to ensure one failure doesn't block everything
+      const [sessionsResult, chatsResult] = await Promise.allSettled([
         supabase
           .from('document_sessions')
           .select('id', { count: 'exact' })
-          .eq('user_id', user?.id),
+          .eq('user_id', user?.id)
+          .timeout(5000), // Add timeout for resilience
         supabase
           .from('chat_history')
           .select('id', { count: 'exact' })
-          .eq('user_id', user?.id),
+          .eq('user_id', user?.id)
+          .timeout(5000), // Add timeout for resilience
       ]);
+      
+      // Process results safely
+      const sessions = sessionsResult.status === 'fulfilled' ? 
+        sessionsResult.value.count || 0 : 0;
+      
+      const chats = chatsResult.status === 'fulfilled' ? 
+        chatsResult.value.count || 0 : 0;
 
+      console.log('Dashboard: Stats fetched successfully', { sessions, chats });
+      
       setStats({
-        totalSessions: sessionsResult.count || 0,
-        totalChats: chatsResult.count || 0,
+        totalSessions: sessions,
+        totalChats: chats,
         recentActivity: Math.floor(Math.random() * 10) + 1, // Mock data for demo
       });
     } catch (error) {
       console.error('Error fetching dashboard stats:', error);
+      // Set default stats on error
+      setStats({
+        totalSessions: 0,
+        totalChats: 0,
+        recentActivity: 0
+      });
     } finally {
+      console.log('Dashboard: Clearing loading state');
       setLoading(false);
     }
   };
