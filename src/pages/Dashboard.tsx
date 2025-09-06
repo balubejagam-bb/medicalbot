@@ -50,6 +50,7 @@ const Dashboard = () => {
     }
     
     return () => clearTimeout(safetyTimeout);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   const fetchDashboardStats = async () => {
@@ -61,21 +62,32 @@ const Dashboard = () => {
         supabase
           .from('document_sessions')
           .select('id', { count: 'exact' })
-          .eq('user_id', user?.id)
-          .timeout(5000), // Add timeout for resilience
+          .eq('user_id', user?.id),
         supabase
           .from('chat_history')
           .select('id', { count: 'exact' })
-          .eq('user_id', user?.id)
-          .timeout(5000), // Add timeout for resilience
+          .eq('user_id', user?.id),
       ]);
       
       // Process results safely
-      const sessions = sessionsResult.status === 'fulfilled' ? 
-        sessionsResult.value.count || 0 : 0;
+      let sessions = 0;
+      let chats = 0;
       
-      const chats = chatsResult.status === 'fulfilled' ? 
-        chatsResult.value.count || 0 : 0;
+      if (sessionsResult.status === 'fulfilled') {
+        if (sessionsResult.value && typeof sessionsResult.value.count === 'number') {
+          sessions = sessionsResult.value.count;
+        } else if (sessionsResult.value && sessionsResult.value.data) {
+          sessions = sessionsResult.value.data.length; 
+        }
+      }
+      
+      if (chatsResult.status === 'fulfilled') {
+        if (chatsResult.value && typeof chatsResult.value.count === 'number') {
+          chats = chatsResult.value.count;
+        } else if (chatsResult.value && chatsResult.value.data) {
+          chats = chatsResult.value.data.length;
+        }
+      }
 
       console.log('Dashboard: Stats fetched successfully', { sessions, chats });
       
