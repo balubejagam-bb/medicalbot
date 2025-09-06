@@ -118,25 +118,28 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       }
     );
 
-    // Safety timeout to prevent indefinite loading
-    const safetyTimeout = setTimeout(() => {
-      if (isMounted && loading) {
-        console.warn('AuthContext: Safety timeout reached, clearing loading');
-        setLoading(false);
-      }
-    }, 5000);
-
     return () => {
       isMounted = false;
-      clearTimeout(safetyTimeout);
       subscription.unsubscribe();
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchUserProfile = async (authUser: User) => {
     try {
       console.log('AuthContext: Fetching user profile for:', authUser.id);
+      
+      // First, set a basic user object immediately to prevent redirect
+      const basicUser = {
+        id: authUser.id,
+        email: authUser.email || '',
+        first_name: authUser.user_metadata?.first_name,
+        last_name: authUser.user_metadata?.last_name,
+        role: authUser.user_metadata?.role,
+      };
+      setUser(basicUser);
+      console.log('AuthContext: Basic user set:', basicUser);
+      
+      // Then try to fetch additional profile data
       const { data, error } = await supabase
         .from('users')
         .select('*')
@@ -147,7 +150,8 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         console.error('Error fetching user profile:', error);
       }
 
-      const userProfile = {
+      // Update with profile data if available
+      const fullUserProfile = {
         id: authUser.id,
         email: authUser.email || '',
         first_name: data?.first_name || authUser.user_metadata?.first_name,
@@ -155,11 +159,11 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         role: data?.role || authUser.user_metadata?.role,
       };
 
-      console.log('AuthContext: User profile set:', userProfile);
-      setUser(userProfile);
+      console.log('AuthContext: Full user profile set:', fullUserProfile);
+      setUser(fullUserProfile);
     } catch (error) {
       console.error('Error in fetchUserProfile:', error);
-      // Set user even if profile fetch fails, using auth metadata
+      // Still set user even if profile fetch fails
       const fallbackUser = {
         id: authUser.id,
         email: authUser.email || '',
