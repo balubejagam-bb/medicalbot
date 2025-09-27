@@ -1,5 +1,4 @@
 // Medical AI Service using Google Generative AI
-
 // Mobile-optimized prompt for concise responses
 const MOBILE_MEDICAL_PROMPT_TEMPLATE = `You are MediCare-ICU Assistant, an AI medical assistant for healthcare professionals. Provide CONCISE, focused answers for mobile users.
 
@@ -9,6 +8,10 @@ const MOBILE_MEDICAL_PROMPT_TEMPLATE = `You are MediCare-ICU Assistant, an AI me
 - Use bullet points for clarity
 - Include only essential medical information
 - Avoid lengthy explanations unless specifically requested
+- If the user greets you or asks a non-clinical question, reply politely and offer further clinical assistance without refusing to answer
+
+**ROLE-SPECIFIC FOCUS:**
+{role_guidance}
 
 MEDICAL CONTEXT: {context}
 QUESTION: {question}
@@ -22,6 +25,11 @@ const MEDICAL_PROMPT_TEMPLATE = `You are MediCare-ICU Pro v7.0, the world's most
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 **ADVANCED MEDICAL INTELLIGENCE PROTOCOL v7.0**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Always acknowledge the user's question—even if it is informal—and then guide the conversation toward clinically useful information while maintaining safety.
+
+**ROLE-TAILORED SAFETY FOCUS:**
+{role_guidance}
 
 **KNOWLEDGE BASE INTEGRATION:**
 - Access to PubMed, Cochrane Reviews, UpToDate, Harrison's Internal Medicine
@@ -181,10 +189,241 @@ When providing medical information, reference and integrate knowledge from:
 
 Generate a **comprehensive, evidence-based clinical response** using the most current medical knowledge available:`;
 
+const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const formatQuestionIntro = (question: string): string => {
+  const trimmed = question.trim();
+  return trimmed ? `**Question Focus:** ${trimmed}\n\n` : '';
+};
+
+interface RoleDirective {
+  label: string;
+  guidance: string;
+  fallback: (question: string, context: string) => string;
+}
+
+const ROLE_DIRECTIVES: Record<string, RoleDirective> = {
+  healthcare_professional: {
+    label: 'Healthcare Professional (Physician/Advanced Clinician)',
+    guidance:
+      'Deliver advanced differential diagnoses, cite guideline-based interventions, include dosing with renal/hepatic adjustments, and highlight red-flag findings that require escalation.',
+  fallback: (question) => `${formatQuestionIntro(question)}## Clinical Assessment
+
+**Critical Priorities:**
+- Highlight immediate threats to life or organ function
+- Summarize the working diagnosis with confidence markers
+- Outline evidence-based interventions with dosing guidance
+
+**Monitoring & Escalation:**
+- Specify parameters to trend (vitals, labs, imaging)
+- Define clear triggers for consultant involvement or ICU transfer
+- Document all interventions with timestamps and rationale
+
+*Professional reminder: corroborate AI insights with bedside assessment and institutional protocols.*`,
+  },
+  nurse: {
+    label: 'Nurse / Nurse Practitioner',
+    guidance:
+      'Focus on bedside assessments, nursing interventions, medication administration safety, patient education, and coordination with the wider care team.',
+    fallback: (question) => `${formatQuestionIntro(question)}## Nursing Assessment & Interventions
+
+**Immediate Actions:**
+- Reassess vital signs and pain scores per protocol
+- Verify medication orders and monitor for adverse reactions
+- Ensure safety measures (fall prevention, line checks, alarms)
+
+**Communication & Documentation:**
+- Escalate changes in condition using SBAR communication
+- Update nursing care plans and patient education notes
+- Reinforce discharge teaching and follow-up arrangements
+
+*Adhere to unit policies and collaborate with the multidisciplinary team for any concerns.*`,
+  },
+  patient: {
+    label: 'Patient',
+    guidance:
+      'Use plain language to explain diagnoses, treatments, lifestyle changes, and warning signs; provide compassionate, step-by-step guidance without clinical jargon.',
+    fallback: (question) => `${formatQuestionIntro(question)}## Understanding Your Care Plan
+
+**What This Means for You:**
+- A simple explanation of the current condition in everyday language
+- Why your care team ordered specific tests or medicines
+- How these steps help with your recovery
+
+**How You Can Help Yourself:**
+- Take medicines exactly as prescribed
+- Follow diet, activity, or wound-care instructions provided
+- Keep follow-up appointments and track any new symptoms
+
+**When to Contact Your Doctor:**
+- If pain, fever, breathing, or other symptoms suddenly worsen
+- If you notice side effects or have questions about medications
+- For any emergency signs, call local emergency services immediately.
+
+*This summary is educational—always follow direct advice from your healthcare providers.*`,
+  },
+  family: {
+    label: 'Family Care Partner',
+    guidance:
+      'Offer caregiver-friendly explanations, emphasize support tasks, safety monitoring, communication with providers, and emotional reassurance for the patient.',
+    fallback: (question) => `${formatQuestionIntro(question)}## Supporting Your Loved One
+
+**How You Can Help:**
+- Keep a simple log of symptoms, medications, and questions
+- Support hydration, nutrition, mobility, and comfort measures
+- Encourage the patient to follow the care team’s instructions
+
+**Stay Alert For:**
+- Sudden changes in breathing, confusion, chest pain, or severe weakness
+- Medication side effects (rash, dizziness, bleeding, swelling)
+- Signs of infection (fever, chills, redness at wound or IV sites)
+
+**Partner with the Care Team:**
+- Share observations promptly and ask for clarification when unsure
+- Bring a current medication list to every appointment
+- Help coordinate follow-up visits and arrange transportation if needed.
+
+*Remember to care for yourself, too—seek support from friends, family, or caregiver resources.*`,
+  },
+  researcher: {
+    label: 'Medical Researcher / Scientist',
+    guidance:
+      'Prioritize discussion of study quality, methodology, statistical significance, limitations, and alignment with current literature.',
+    fallback: (question) => `${formatQuestionIntro(question)}## Research-Oriented Summary
+
+**Evidence Snapshot:**
+- Outline key findings relevant to the clinical question
+- Note study designs (RCT, cohort, meta-analysis) and sample sizes
+- Comment on statistical power, effect sizes, and confidence intervals
+
+**Literature Context:**
+- Compare results with landmark trials or guidelines
+- Highlight unresolved controversies or gaps in evidence
+- Suggest directions for future research or quality improvement projects
+
+**Clinical Translation:**
+- Discuss applicability to target populations and settings
+- Address safety signals and monitoring requirements
+- Identify practical barriers to implementation (cost, resources, training)
+
+*Ensure citations and institutional review processes are followed when disseminating findings.*`,
+  },
+  pharmacist: {
+    label: 'Pharmacist / Medication Specialist',
+    guidance:
+      'Center the response on pharmacotherapy: dosing, kinetics, interactions, adjustments for organ function, monitoring parameters, and counseling points.',
+    fallback: (question) => `${formatQuestionIntro(question)}## Pharmacotherapy Checklist
+
+**Medication Review:**
+- Verify indications, dosing regimens, routes, and timing
+- Screen for CYP450, QTc, and pharmacodynamic interactions
+- Adjust for renal/hepatic impairment and age-specific considerations
+
+**Monitoring & Counseling:**
+- Outline therapeutic drug monitoring or lab follow-up needs
+- Emphasize patient counseling points and adherence strategies
+- Prepare mitigation plans for anticipated adverse effects
+
+**Coordination:**
+- Communicate recommendations to prescribers and nursing staff
+- Update medication reconciliation and allergy profiles
+- Document interventions in the pharmacy care plan
+
+*Consult institutional formularies and clinical guidelines to finalize recommendations.*`,
+  },
+  default: {
+    label: 'General Medical User',
+    guidance:
+      'Provide balanced medical guidance using clear language, explain rationales, and include when to seek professional help.',
+    fallback: (question) => `${formatQuestionIntro(question)}## Your Medical Summary
+
+**What We Know So Far:**
+- Summarize the main concern and current findings in simple terms
+- Explain goals of tests, imaging, or treatments that are planned or underway
+
+**Next Helpful Steps:**
+- Follow the care team’s instructions closely
+- Ask questions about anything that is unclear
+- Keep a list of medications and upcoming appointments handy
+
+**Safety Reminders:**
+- Watch for new or worsening symptoms and report them
+- Seek immediate medical care for emergency warning signs (severe chest pain, difficulty breathing, sudden weakness, uncontrolled bleeding)
+
+*Use this as supportive guidance—always rely on licensed professionals for diagnosis and treatment decisions.*`,
+  },
+};
+
+const getRoleDirective = (role: string): RoleDirective => ROLE_DIRECTIVES[role] ?? ROLE_DIRECTIVES.default;
+
+interface GeminiRequestOptions {
+  model: string;
+  body: unknown;
+  apiKey: string | undefined;
+  retries?: number;
+}
+
+async function callGeminiDirect<T>({ model, body, apiKey, retries = 2 }: GeminiRequestOptions): Promise<T> {
+  if (!apiKey) {
+    throw new Error('Missing Google API key. Please configure VITE_GOOGLE_API_KEY in your environment.');
+  }
+
+  const url = `${GEMINI_BASE_URL}/${model}:generateContent?key=${apiKey}`;
+  let attempt = 0;
+  let lastError: Error | null = null;
+
+  while (attempt <= retries) {
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      if (response.ok) {
+        return (await response.json()) as T;
+      }
+
+      const payload = await response.json().catch(() => undefined);
+      const message =
+        payload?.error?.message ||
+        payload?.message ||
+        `Gemini API error (${response.status})`;
+
+      if (response.status === 429 || (response.status >= 500 && response.status < 600)) {
+        lastError = new Error(message);
+      } else {
+        throw new Error(message);
+      }
+    } catch (error) {
+      lastError = error as Error;
+    }
+
+    attempt += 1;
+    const backoff = 600 * Math.pow(2, attempt);
+    await sleep(backoff);
+  }
+
+  throw lastError ?? new Error('Unknown Gemini API error');
+}
+
+interface GeminiContentResponse {
+  candidates?: Array<{
+    content?: {
+      parts?: Array<{
+        text?: string;
+      }>;
+    };
+  }>;
+}
+
 interface AIResponse {
   text: string;
   success: boolean;
   error?: string;
+  fallbackUsed?: boolean;
 }
 
 export const getAIResponse = async (
@@ -198,14 +437,14 @@ export const getAIResponse = async (
     
     // Use mobile-optimized prompt for mobile users or if response length is requested to be short
     const selectedTemplate = isMobile || window.innerWidth < 768 ? MOBILE_MEDICAL_PROMPT_TEMPLATE : MEDICAL_PROMPT_TEMPLATE;
+    const roleDirective = getRoleDirective(userType);
     
     const prompt = selectedTemplate
-      .replace('{context}', context)
+      .replace('{context}', context || 'No additional context provided.')
       .replace('{question}', question)
-      .replace('{user_type}', userType);
+      .replace('{user_type}', roleDirective.label)
+      .replace('{role_guidance}', roleDirective.guidance);
 
-    // Gemini API call
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GOOGLE_API_KEY}`;
     const body = {
       contents: [
         {
@@ -215,16 +454,14 @@ export const getAIResponse = async (
         }
       ]
     };
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
+    const data = await callGeminiDirect<GeminiContentResponse>({
+      model: 'gemini-2.0-flash',
+      body,
+      retries: 3,
+      apiKey: GOOGLE_API_KEY,
     });
-    const data = await response.json();
     // Gemini returns response in data.candidates[0].content.parts[0].text
-    const aiText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const aiText = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
     if (aiText) {
       return {
         text: aiText,
@@ -248,7 +485,8 @@ export const getAIResponse = async (
 };
 
 // Mock response generator for demonstration
-function generateMockResponse(question: string, userType: string, context: string): string {
+export function generateFallbackResponse(question: string, userType: string, context: string): string {
+  const roleDirective = getRoleDirective(userType);
   // Check if context contains medical content (more flexible detection)
   const medicalKeywords = [
     'patient', 'diagnosis', 'medication', 'treatment', 'lab', 'blood', 'test', 'doctor', 
@@ -303,74 +541,7 @@ I can see that this document/image contains limited extractable text. This could
 3. Upload additional documents for analysis`;
   }
 
-  // Generate appropriate response based on user type
-  switch (userType) {
-    case 'healthcare_professional':
-      return `## Clinical Assessment
-
-**Critical Risk Assessment:**
-⚠️ Based on the provided context, I've identified the following key clinical points:
-
-**Medication Management:**
-- Review current medications for potential interactions
-- Consider dosage adjustments based on renal/hepatic function
-- Monitor for side effects and contraindications
-
-**Diagnostic Pathway:**
-1. Continue current monitoring protocols
-2. Consider additional diagnostic tests if indicated
-3. Follow evidence-based treatment guidelines
-
-**Next Steps:**
-- Reassess in 2-4 hours
-- Monitor vital signs closely
-- Document all interventions
-
-*Note: This is an AI-generated response. Always consult with attending physicians for clinical decisions.*`;
-
-    case 'nurse':
-      return `## Nursing Assessment & Interventions
-
-**Monitoring Parameters:**
-- Vital signs every 2 hours or as ordered
-- Watch for changes in patient condition
-- Document all observations accurately
-
-**Medication Administration:**
-- Verify patient identity and medication orders
-- Monitor for adverse reactions
-- Ensure proper administration technique
-
-**Patient Care:**
-- Maintain patient comfort and safety
-- Provide emotional support
-- Communicate any concerns to the healthcare team
-
-*Always follow facility protocols and contact the physician with any concerns.*`;
-
-    default:
-      return `## Your Medical Information
-
-**Understanding Your Condition:**
-Based on the medical documents provided, here's what this means in simple terms:
-
-**Treatment Plan:**
-Your healthcare team has developed a care plan specifically for you. This includes:
-- Medications to help with your condition
-- Tests to monitor your progress
-- Follow-up appointments
-
-**What You Can Do:**
-- Take medications as prescribed
-- Follow all instructions from your healthcare team
-- Ask questions if you're unsure about anything
-- Keep all follow-up appointments
-
-**When to Seek Help:**
-Contact your healthcare provider if you experience any concerning symptoms or changes.
-
-*This information is for educational purposes only and should not replace professional medical advice.*`;
-  }
+  return roleDirective.fallback(question, context);
 }
 
 export const speakResponse = (text: string): void => {
